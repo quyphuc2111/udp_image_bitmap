@@ -1,9 +1,14 @@
 mod screen_capture;
 mod udp_server;
 mod udp_client;
+mod frame_pacer;
+mod cursor_capture;
+mod hw_encoder;
 
 #[cfg(target_os = "windows")]
 mod windows_capture;
+#[cfg(target_os = "windows")]
+mod dxgi_capture;
 
 use tauri::State;
 use std::sync::Mutex;

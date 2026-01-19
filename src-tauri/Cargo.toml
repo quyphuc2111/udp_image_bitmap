@@ -5,12 +5,7 @@ description = "SmartLab ScreenShare - Screen sharing app for teaching with UDP M
 authors = ["ZenaDev"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "screensharing_capturescreen_udpboaarrdcast_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -28,12 +23,13 @@ base64 = "0.22"
 scrap = "0.5"
 socket2 = "0.5"
 
-# Windows-specific dependencies
+# Windows-specific dependencies for DXGI capture
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
-    "Graphics_Capture",
-    "Graphics_DirectX",
-    "Graphics_DirectX_Direct3D11",
-    "Foundation",
-    "System",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
 ] }
