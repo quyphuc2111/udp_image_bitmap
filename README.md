@@ -2,6 +2,17 @@
 
 Ứng dụng chia sẻ màn hình sử dụng UDP Multicast cho giảng bài, được xây dựng với Tauri + React.
 
+## 🆕 Recent Updates (2026-01-19)
+
+✅ **Fixed black screen issues** - Resolved race conditions in canvas rendering  
+✅ **Improved performance** - GPU acceleration & optimized ImageBitmap usage  
+✅ **Better error handling** - Timeout management & JPEG validation  
+✅ **Memory leak fixes** - Proper cleanup of ImageBitmap resources  
+
+📖 See detailed fixes: [`FIXES_EXPLANATION.md`](./FIXES_EXPLANATION.md)  
+📊 Performance improvements: [`PERFORMANCE_FIXES.md`](./PERFORMANCE_FIXES.md)  
+🧪 Test guide: [`TEST_GUIDE.md`](./TEST_GUIDE.md)
+
 ## Tính năng
 
 - **Server Mode (Giảng viên)**: Chia sẻ màn hình qua UDP Multicast

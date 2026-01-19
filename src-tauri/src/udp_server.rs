@@ -36,15 +36,29 @@ impl UdpServer {
         
         tokio::spawn(async move {
             let mut frame_id = 0u32;
+            let mut consecutive_errors = 0u32;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 10;
+            
             while *is_running.lock().unwrap() {
                 match capture_fn() {
                     Ok(data) => {
+                        // Reset error counter on success
+                        consecutive_errors = 0;
+                        
+                        // Skip empty frames (black screens)
+                        if data.is_empty() || data.len() < 100 {
+                            eprintln!("Warning: Captured frame is too small ({} bytes), skipping", data.len());
+                            sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+                        
                         // Compress more if still too large
                         let compressed = if data.len() > 500_000 {
                             match Self::recompress_jpeg(&data, JPEG_QUALITY) {
                                 Ok(d) => d,
                                 Err(e) => {
                                     eprintln!("Recompress error: {}", e);
+                                    sleep(Duration::from_millis(100)).await;
                                     continue;
                                 }
                             }
@@ -54,10 +68,22 @@ impl UdpServer {
                         
                         if let Err(e) = Self::send_chunked(&socket, &compressed, frame_id).await {
                             eprintln!("Send error: {}", e);
+                        } else {
+                            // Only increment frame ID on successful send
+                            frame_id = frame_id.wrapping_add(1);
                         }
-                        frame_id = frame_id.wrapping_add(1);
                     }
-                    Err(e) => eprintln!("Capture error: {}", e),
+                    Err(e) => {
+                        consecutive_errors += 1;
+                        eprintln!("Capture error ({}/{}): {}", consecutive_errors, MAX_CONSECUTIVE_ERRORS, e);
+                        
+                        // Stop streaming if too many consecutive errors
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                            eprintln!("Too many consecutive capture errors. Stopping stream.");
+                            *is_running.lock().unwrap() = false;
+                            break;
+                        }
+                    }
                 }
                 sleep(Duration::from_millis(100)).await; // ~10 FPS
             }
