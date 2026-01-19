@@ -1,0 +1,74 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Tauri app
+        run: npm run tauri build
+
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Screen Sharing - UDP Multicast v${{ steps.get_version.outputs.VERSION }}
+            
+            ### Windows Installers
+            - `.msi` - Windows Installer Package
+            - `.exe` - NSIS Installer
+            
+            ### Tính năng
+            - ✅ Server mode: Chia sẻ màn hình qua UDP Multicast
+            - ✅ Client mode: Nhận và hiển thị màn hình
+            - ✅ Sử dụng scrap library cho hiệu suất cao
+            - ✅ Tốc độ ~10 FPS
+            
+            ### Cài đặt
+            1. Tải file `.exe` hoặc `.msi`
+            2. Chạy installer
+            3. Mở ứng dụng và chọn chế độ Server hoặc Client
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
