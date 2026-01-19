@@ -2,6 +2,9 @@ mod screen_capture;
 mod udp_server;
 mod udp_client;
 
+#[cfg(target_os = "windows")]
+mod windows_capture;
+
 use tauri::State;
 use std::sync::Mutex;
 use serde::Serialize;
@@ -21,10 +24,23 @@ struct AppState {
 #[tauri::command]
 async fn start_server(state: State<'_, AppState>) -> Result<String, String> {
     let server = udp_server::UdpServer::new()?;
-    server.start_streaming(screen_capture::capture_screen).await?;
+    
+    // Use platform-specific capture
+    #[cfg(target_os = "windows")]
+    {
+        // Try Windows.Graphics.Capture, fallback to scrap if not available
+        server.start_streaming(|| {
+            windows_capture::capture_screen_platform_specific()
+        }).await?;
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        server.start_streaming(screen_capture::capture_screen).await?;
+    }
     
     *state.server.lock().unwrap() = Some(server);
-    Ok("Server started successfully".to_string())
+    Ok("Server started successfully (using platform-optimized capture)".to_string())
 }
 
 #[tauri::command]

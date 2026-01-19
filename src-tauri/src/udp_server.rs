@@ -6,6 +6,7 @@ use tokio::time::sleep;
 const MULTICAST_ADDR: &str = "239.0.0.1:9999";
 const CHUNK_SIZE: usize = 8192; // Smaller chunks for UDP safety (8KB)
 const JPEG_QUALITY: u8 = 60; // Lower quality for smaller size
+const REDUNDANT_PACKETS: bool = true; // Send critical packets twice for reliability
 
 pub struct UdpServer {
     socket: Arc<UdpSocket>,
@@ -116,8 +117,10 @@ impl UdpServer {
     
     async fn send_chunked(socket: &UdpSocket, data: &[u8], frame_id: u32) -> Result<(), String> {
         let total_chunks = (data.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let chunks: Vec<&[u8]> = data.chunks(CHUNK_SIZE).collect();
         
-        for (i, chunk) in data.chunks(CHUNK_SIZE).enumerate() {
+        // First pass: Send all chunks
+        for (i, chunk) in chunks.iter().enumerate() {
             let mut packet = Vec::with_capacity(12 + chunk.len());
             packet.extend_from_slice(&frame_id.to_be_bytes());
             packet.extend_from_slice(&(i as u32).to_be_bytes());
@@ -130,6 +133,32 @@ impl UdpServer {
             // Small delay between chunks to avoid overwhelming network
             if i % 10 == 0 {
                 tokio::time::sleep(Duration::from_micros(100)).await;
+            }
+        }
+        
+        // Second pass: Resend first and last chunks for reliability (critical for JPEG)
+        if REDUNDANT_PACKETS && total_chunks > 2 {
+            tokio::time::sleep(Duration::from_micros(500)).await;
+            
+            // Resend first chunk (JPEG header)
+            if let Some(first_chunk) = chunks.first() {
+                let mut packet = Vec::with_capacity(12 + first_chunk.len());
+                packet.extend_from_slice(&frame_id.to_be_bytes());
+                packet.extend_from_slice(&0u32.to_be_bytes());
+                packet.extend_from_slice(&(total_chunks as u32).to_be_bytes());
+                packet.extend_from_slice(first_chunk);
+                let _ = socket.send_to(&packet, MULTICAST_ADDR);
+            }
+            
+            // Resend last chunk (JPEG end marker)
+            if let Some(last_chunk) = chunks.last() {
+                let last_idx = chunks.len() - 1;
+                let mut packet = Vec::with_capacity(12 + last_chunk.len());
+                packet.extend_from_slice(&frame_id.to_be_bytes());
+                packet.extend_from_slice(&(last_idx as u32).to_be_bytes());
+                packet.extend_from_slice(&(total_chunks as u32).to_be_bytes());
+                packet.extend_from_slice(last_chunk);
+                let _ = socket.send_to(&packet, MULTICAST_ADDR);
             }
         }
         

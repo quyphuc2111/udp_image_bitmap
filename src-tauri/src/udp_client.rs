@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, AppHandle};
 use socket2::{Socket, Domain, Type, Protocol};
 
-const FRAME_TIMEOUT_MS: u64 = 1000; // Discard incomplete frames after 1s (faster recovery)
+const FRAME_TIMEOUT_MS: u64 = 500; // Discard incomplete frames after 500ms (faster recovery)
+const MIN_FRAME_COMPLETION: f32 = 0.95; // Accept frames with 95%+ chunks (tolerate 5% packet loss)npm 
 
 pub struct UdpClient {
     socket: Arc<UdpSocket>,
@@ -99,32 +100,74 @@ impl UdpClient {
                             continue;
                         }
                         
-                        // Check if frame is complete
-                        let is_complete = chunks.iter().all(|c| !c.is_empty());
+                        // Check frame completion status
+                        let received_chunks = chunks.iter().filter(|c| !c.is_empty()).count();
+                        let total_chunks = chunks.len();
+                        let completion_ratio = received_chunks as f32 / total_chunks as f32;
                         
-                        if is_complete {
-                            let complete_frame: Vec<u8> = chunks.concat();
-                            
-                            // Validate frame is not empty and looks like valid JPEG
-                            if complete_frame.len() >= 100 && 
-                               complete_frame.starts_with(&[0xFF, 0xD8]) && // JPEG magic bytes
-                               complete_frame.ends_with(&[0xFF, 0xD9]) {
-                                let base64_image = base64::Engine::encode(
-                                    &base64::engine::general_purpose::STANDARD, 
-                                    &complete_frame
+                        // Accept frame if it's 100% complete OR meets minimum threshold
+                        let should_process = completion_ratio >= MIN_FRAME_COMPLETION;
+                        
+                        if should_process {
+                            // For incomplete frames, fill missing chunks with empty data
+                            let complete_frame: Vec<u8> = if completion_ratio < 1.0 {
+                                // Log missing chunks
+                                let missing: Vec<usize> = chunks.iter()
+                                    .enumerate()
+                                    .filter(|(_, c)| c.is_empty())
+                                    .map(|(i, _)| i)
+                                    .collect();
+                                eprintln!(
+                                    "⚠️  Frame {} partially complete ({:.1}%), missing {} chunks: {:?}",
+                                    frame_id,
+                                    completion_ratio * 100.0,
+                                    total_chunks - received_chunks,
+                                    missing
                                 );
                                 
-                                let _ = app.emit("screen-frame", base64_image);
+                                // Concatenate only non-empty chunks (skip missing ones)
+                                chunks.iter()
+                                    .filter(|c| !c.is_empty())
+                                    .flatten()
+                                    .copied()
+                                    .collect()
+                            } else {
+                                chunks.concat()
+                            };
+                            
+                            // Validate frame is not empty and looks like valid JPEG
+                            if complete_frame.len() >= 100 {
+                                // Check JPEG magic bytes
+                                let has_jpeg_start = complete_frame.starts_with(&[0xFF, 0xD8]);
+                                let has_jpeg_end = complete_frame.ends_with(&[0xFF, 0xD9]);
+                                
+                                // For partial frames, we might not have the end marker
+                                if has_jpeg_start && (has_jpeg_end || completion_ratio < 1.0) {
+                                    let base64_image = base64::Engine::encode(
+                                        &base64::engine::general_purpose::STANDARD, 
+                                        &complete_frame
+                                    );
+                                    
+                                    let _ = app.emit("screen-frame", base64_image);
+                                    frames_received += 1;
+                                } else {
+                                    eprintln!(
+                                        "❌ Invalid JPEG frame {} (size: {}, start: {}, end: {})", 
+                                        frame_id,
+                                        complete_frame.len(),
+                                        has_jpeg_start,
+                                        has_jpeg_end
+                                    );
+                                }
                             } else {
                                 eprintln!(
-                                    "Warning: Invalid JPEG frame (size: {}, starts: {:02X?})", 
-                                    complete_frame.len(),
-                                    &complete_frame.get(0..2).unwrap_or(&[])
+                                    "❌ Frame {} too small: {} bytes (min 100)", 
+                                    frame_id,
+                                    complete_frame.len()
                                 );
                             }
                             
                             buffer.remove(&frame_id);
-                            frames_received += 1;
                             
                             // Log stats every 5 seconds
                             if now.duration_since(last_log_time).as_secs() >= 5 {

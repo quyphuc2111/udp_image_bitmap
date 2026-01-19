@@ -86,15 +86,35 @@ function App() {
       try {
         // Decode base64 to blob
         const base64Data = event.payload;
+        
+        // Validate base64 data is not empty
+        if (!base64Data || base64Data.length < 100) {
+          console.warn("Received empty or too small frame data, keeping last frame");
+          return;
+        }
+        
         const binaryString = atob(base64Data);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
+        
+        // Validate JPEG signature before creating blob
+        if (bytes.length < 2 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+          console.warn("Received invalid JPEG data (missing magic bytes), keeping last frame");
+          return;
+        }
+        
         const blob = new Blob([bytes], { type: "image/jpeg" });
 
-        // Create ImageBitmap for better performance
-        const imageBitmap = await createImageBitmap(blob);
+        // Create ImageBitmap for better performance (with error handling)
+        let imageBitmap: ImageBitmap;
+        try {
+          imageBitmap = await createImageBitmap(blob);
+        } catch (bitmapError) {
+          console.error("Failed to create ImageBitmap from received data, keeping last frame:", bitmapError);
+          return; // Keep displaying last valid frame
+        }
 
         // Initialize context once with proper settings
         if (!ctxRef.current) {
