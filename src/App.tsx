@@ -19,8 +19,66 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const lastFrameRef = useRef<ImageBitmap | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const isVisibleRef = useRef(true);
+
+  // Redraw last frame when window regains focus
+  const redrawLastFrame = () => {
+    const canvas = canvasRef.current;
+    const ctx = ctxRef.current;
+    const lastFrame = lastFrameRef.current;
+
+    if (canvas && ctx && lastFrame) {
+      // Ensure canvas dimensions are correct
+      if (canvas.width !== lastFrame.width || canvas.height !== lastFrame.height) {
+        canvas.width = lastFrame.width;
+        canvas.height = lastFrame.height;
+      }
+      // Redraw the last frame
+      ctx.drawImage(lastFrame, 0, 0);
+    }
+  };
 
   useEffect(() => {
+    // Handle visibility change (tab/window focus)
+    const handleVisibilityChange = () => {
+      isVisibleRef.current = !document.hidden;
+      if (!document.hidden) {
+        // Redraw when tab becomes visible
+        redrawLastFrame();
+      }
+    };
+
+    // Handle mouse enter/leave
+    const handleMouseEnter = () => {
+      isVisibleRef.current = true;
+      redrawLastFrame();
+    };
+
+    const handleMouseLeave = () => {
+      isVisibleRef.current = false;
+    };
+
+    // Handle window focus/blur
+    const handleFocus = () => {
+      isVisibleRef.current = true;
+      redrawLastFrame();
+    };
+
+    const handleBlur = () => {
+      isVisibleRef.current = false;
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.addEventListener('mouseenter', handleMouseEnter);
+      canvas.addEventListener('mouseleave', handleMouseLeave);
+    }
+
     const unlisten = listen<string>("screen-frame", async (event) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -38,11 +96,12 @@ function App() {
         // Create ImageBitmap for better performance
         const imageBitmap = await createImageBitmap(blob);
 
-        // Initialize context once
+        // Initialize context once with proper settings
         if (!ctxRef.current) {
           ctxRef.current = canvas.getContext("2d", {
             alpha: false, // Better performance for opaque content
             desynchronized: true, // Allow async rendering
+            willReadFrequently: false, // We only write, don't read
           });
         }
 
@@ -58,11 +117,19 @@ function App() {
           canvas.height = imageBitmap.height;
         }
 
-        // Draw the ImageBitmap
-        ctx.drawImage(imageBitmap, 0, 0);
+        // Use requestAnimationFrame for smoother rendering
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+
+        animationFrameRef.current = requestAnimationFrame(() => {
+          // Draw the ImageBitmap
+          ctx.drawImage(imageBitmap, 0, 0);
+          animationFrameRef.current = null;
+        });
 
         // Clean up previous frame
-        if (lastFrameRef.current) {
+        if (lastFrameRef.current && lastFrameRef.current !== imageBitmap) {
           lastFrameRef.current.close();
         }
         lastFrameRef.current = imageBitmap;
@@ -76,6 +143,23 @@ function App() {
 
     return () => {
       unlisten.then((fn) => fn());
+      
+      // Remove event listeners
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+      
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.removeEventListener('mouseenter', handleMouseEnter);
+        canvas.removeEventListener('mouseleave', handleMouseLeave);
+      }
+
+      // Cancel pending animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
       // Clean up ImageBitmap on unmount
       if (lastFrameRef.current) {
         lastFrameRef.current.close();

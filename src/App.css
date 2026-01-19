@@ -178,6 +178,28 @@ button:active {
   overflow: hidden;
   background-color: #000;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  /* Prevent flashing during canvas updates */
+  position: relative;
+  min-height: 400px;
+}
+
+.screen-display::before {
+  content: "Đang chờ stream...";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #667eea;
+  font-size: 1.2em;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.screen-display canvas {
+  position: relative;
+  z-index: 1;
+  background-color: #000;
 }
 
 .screen-display img,
@@ -194,6 +216,15 @@ button:active {
   /* Anti-flicker */
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  /* Prevent canvas from being cleared on focus change */
+  -webkit-transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0);
+  /* Force hardware layer */
+  -webkit-font-smoothing: subpixel-antialiased;
+  /* Prevent browser optimizations that clear canvas */
+  contain: paint;
+  /* Keep canvas content during blur */
+  isolation: isolate;
 }
 
 /* Display info styling */
