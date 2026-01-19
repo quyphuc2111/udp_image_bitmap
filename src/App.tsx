@@ -16,11 +16,18 @@ function App() {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState("");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const [debugInfo, setDebugInfo] = useState({ fps: 0, errors: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const lastFrameRef = useRef<ImageBitmap | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const isVisibleRef = useRef(true);
+  
+  // Diagnostic refs
+  const frameCountRef = useRef(0);
+  const errorCountRef = useRef(0);
+  const lastLogTimeRef = useRef(Date.now());
+  const lastFrameTimeRef = useRef(Date.now());
 
   // Redraw last frame when window regains focus
   const redrawLastFrame = () => {
@@ -81,7 +88,14 @@ function App() {
 
     const unlisten = listen<string>("screen-frame", async (event) => {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas) {
+        console.warn("⚠️ Canvas not available");
+        return;
+      }
+
+      const now = Date.now();
+      const timeSinceLastFrame = now - lastFrameTimeRef.current;
+      lastFrameTimeRef.current = now;
 
       try {
         // Decode base64 to blob
@@ -89,7 +103,9 @@ function App() {
         
         // Validate base64 data is not empty
         if (!base64Data || base64Data.length < 100) {
-          console.warn("Received empty or too small frame data, keeping last frame");
+          errorCountRef.current++;
+          console.warn("❌ Received empty or too small frame data, keeping last frame");
+          console.warn(`   Data length: ${base64Data?.length || 0} bytes`);
           return;
         }
         
@@ -101,7 +117,9 @@ function App() {
         
         // Validate JPEG signature before creating blob
         if (bytes.length < 2 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
-          console.warn("Received invalid JPEG data (missing magic bytes), keeping last frame");
+          errorCountRef.current++;
+          console.warn("❌ Received invalid JPEG data (missing magic bytes), keeping last frame");
+          console.warn(`   Bytes: [${bytes[0]?.toString(16)}, ${bytes[1]?.toString(16)}], Expected: [FF, D8]`);
           return;
         }
         
@@ -110,9 +128,17 @@ function App() {
         // Create ImageBitmap for better performance (with error handling)
         let imageBitmap: ImageBitmap;
         try {
+          const startTime = performance.now();
           imageBitmap = await createImageBitmap(blob);
+          const createTime = performance.now() - startTime;
+          
+          if (createTime > 50) {
+            console.warn(`⚠️ Slow ImageBitmap creation: ${createTime.toFixed(1)}ms`);
+          }
         } catch (bitmapError) {
-          console.error("Failed to create ImageBitmap from received data, keeping last frame:", bitmapError);
+          errorCountRef.current++;
+          console.error("❌ Failed to create ImageBitmap from received data, keeping last frame:", bitmapError);
+          console.error(`   Blob size: ${blob.size} bytes, JPEG valid: ${bytes[0] === 0xFF && bytes[1] === 0xD8}`);
           return; // Keep displaying last valid frame
         }
 
@@ -143,8 +169,16 @@ function App() {
         }
 
         animationFrameRef.current = requestAnimationFrame(() => {
+          const renderStart = performance.now();
+          
           // Draw the ImageBitmap
           ctx.drawImage(imageBitmap, 0, 0);
+          
+          const renderTime = performance.now() - renderStart;
+          if (renderTime > 16) {
+            console.warn(`⚠️ Slow render: ${renderTime.toFixed(1)}ms (should be <16ms for 60fps)`);
+          }
+          
           animationFrameRef.current = null;
         });
 
@@ -153,8 +187,32 @@ function App() {
           lastFrameRef.current.close();
         }
         lastFrameRef.current = imageBitmap;
+        
+        // Update stats
+        frameCountRef.current++;
+        
+        // Log stats every 5 seconds
+        if (now - lastLogTimeRef.current >= 5000) {
+          const fps = frameCountRef.current / 5;
+          const errorRate = (errorCountRef.current / (frameCountRef.current + errorCountRef.current)) * 100;
+          
+          console.log(`📊 Client Stats (last 5s):`);
+          console.log(`   ✅ Frames rendered: ${frameCountRef.current} (${fps.toFixed(1)} FPS)`);
+          console.log(`   ❌ Errors/skipped: ${errorCountRef.current} (${errorRate.toFixed(1)}%)`);
+          console.log(`   ⏱️  Avg frame interval: ${(5000 / frameCountRef.current).toFixed(0)}ms`);
+          console.log(`   🎨 Canvas size: ${canvas.width}x${canvas.height}`);
+          console.log(`   📏 Last frame time since previous: ${timeSinceLastFrame}ms`);
+          
+          // Update UI with debug info
+          setDebugInfo({ fps: Math.round(fps * 10) / 10, errors: errorCountRef.current });
+          
+          frameCountRef.current = 0;
+          errorCountRef.current = 0;
+          lastLogTimeRef.current = now;
+        }
       } catch (error) {
-        console.error("Failed to render frame:", error);
+        errorCountRef.current++;
+        console.error("❌ Failed to render frame (outer catch):", error);
       }
     });
 
@@ -322,9 +380,27 @@ function App() {
             </button>
           </div>
           {isActive && (
-            <div className="screen-display">
-              <canvas ref={canvasRef} />
-            </div>
+            <>
+              <div className="screen-display">
+                <canvas ref={canvasRef} />
+              </div>
+              <div style={{ 
+                marginTop: '1rem', 
+                padding: '0.5rem', 
+                background: 'rgba(0,0,0,0.1)', 
+                borderRadius: '8px',
+                fontSize: '0.9em',
+                color: '#555'
+              }}>
+                📊 FPS: <strong>{debugInfo.fps}</strong> | 
+                ❌ Errors (last 5s): <strong style={{ color: debugInfo.errors > 5 ? 'red' : 'inherit' }}>
+                  {debugInfo.errors}
+                </strong>
+                {debugInfo.errors > 10 && <span style={{ color: 'red', marginLeft: '1rem' }}>
+                  ⚠️ Nhiều lỗi - kiểm tra mạng!
+                </span>}
+              </div>
+            </>
           )}
         </div>
       )}

@@ -5,7 +5,7 @@ use tauri::{Emitter, AppHandle};
 use socket2::{Socket, Domain, Type, Protocol};
 
 const FRAME_TIMEOUT_MS: u64 = 500; // Discard incomplete frames after 500ms (faster recovery)
-const MIN_FRAME_COMPLETION: f32 = 0.95; // Accept frames with 95%+ chunks (tolerate 5% packet loss)npm 
+const MIN_FRAME_COMPLETION: f32 = 0.98; // Accept frames with 98%+ chunks (stricter to avoid black screens) 
 
 pub struct UdpClient {
     socket: Arc<UdpSocket>,
@@ -105,12 +105,14 @@ impl UdpClient {
                         let total_chunks = chunks.len();
                         let completion_ratio = received_chunks as f32 / total_chunks as f32;
                         
-                        // Accept frame if it's 100% complete OR meets minimum threshold
-                        let should_process = completion_ratio >= MIN_FRAME_COMPLETION;
+                        // CRITICAL: Only accept 100% complete frames to avoid black screens
+                        // Partial frames cause corrupt JPEG → black screen on client
+                        let is_complete = completion_ratio >= 1.0;
+                        let should_process = is_complete || (completion_ratio >= MIN_FRAME_COMPLETION && completion_ratio > 0.98);
                         
                         if should_process {
-                            // For incomplete frames, fill missing chunks with empty data
-                            let complete_frame: Vec<u8> = if completion_ratio < 1.0 {
+                            // For incomplete frames, try to salvage what we can
+                            let complete_frame: Vec<u8> = if !is_complete {
                                 // Log missing chunks
                                 let missing: Vec<usize> = chunks.iter()
                                     .enumerate()
