@@ -9,6 +9,10 @@ edition = "2021"
 name = "screensharing_capturescreen_udpboaarrdcast_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = []
+dxgi = []  # Enable DXGI capture (Windows only, advanced)
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -23,13 +27,10 @@ base64 = "0.22"
 scrap = "0.5"
 socket2 = "0.5"
 
-# Windows-specific dependencies for DXGI capture
+# Windows-specific dependencies (basic only for cursor, not DXGI)
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
-    "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Dxgi",
-    "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
 ] }

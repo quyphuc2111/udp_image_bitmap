@@ -7,18 +7,18 @@ use std::time::Duration;
 const JPEG_QUALITY: u8 = 50; // Lower quality for smaller packets
 const MAX_WIDTH: u32 = 1280; // Scale down large screens
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 use std::sync::Mutex;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 use crate::dxgi_capture::DxgiCapturer;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 static DXGI_CAPTURER: Mutex<Option<DxgiCapturer>> = Mutex::new(None);
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 static TRIED_DXGI: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn capture_screen() -> Result<Vec<u8>, String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", feature = "dxgi"))]
     {
         // Try DXGI capture first (10x faster than scrap on Windows)
         if !TRIED_DXGI.load(std::sync::atomic::Ordering::Relaxed) {
@@ -64,7 +64,7 @@ pub fn capture_screen() -> Result<Vec<u8>, String> {
         drop(dxgi_guard);
     }
 
-    // Fallback to scrap (original implementation)
+    // Fallback to scrap (always available on all platforms)
     capture_screen_scrap()
 }
 

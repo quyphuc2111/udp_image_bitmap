@@ -5,9 +5,9 @@ mod frame_pacer;
 mod cursor_capture;
 mod hw_encoder;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 mod windows_capture;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "dxgi"))]
 mod dxgi_capture;
 
 use tauri::State;
